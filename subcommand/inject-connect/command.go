@@ -33,6 +33,11 @@ type Command struct {
 	flagDefaultInject bool   // True to inject by default
 	flagConsulImage   string // Docker image for Consul
 	flagEnvoyImage    string // Docker image for Envoy
+
+	flagUseTls        bool
+	flagCaCertName    string
+	flagClientCertName string
+
 	flagSet           *flag.FlagSet
 
 	once sync.Once
@@ -56,6 +61,12 @@ func (c *Command) init() {
 		"Docker image for Consul. Defaults to an Consul 1.3.0.")
 	c.flagSet.StringVar(&c.flagEnvoyImage, "envoy-image", connectinject.DefaultEnvoyImage,
 		"Docker image for Envoy. Defaults to Envoy 1.8.0.")
+	c.flagSet.BoolVar(&c.flagUseTls, "use-tls", false, "Expect TLS when talking to Consul.")
+	c.flagSet.StringVar(&c.flagCaCertName, "consul-ca-cert", "consul-ca-cert",
+		"Name of the k8s secret that contains the TLS root CA cert for Consul.")
+	c.flagSet.StringVar(&c.flagClientCertName, "consul-client-cert", "consul-client-cert",
+		"Name of the k8s secret that contains the TLS client cert for Consul.")
+
 	c.help = flags.Usage(help, c.flagSet)
 }
 
@@ -99,11 +110,17 @@ func (c *Command) Run(args []string) int {
 	defer cancelFunc()
 	go c.certWatcher(ctx, certCh, clientset)
 
+	c.UI.Info(fmt.Sprintf("Run(): UseTLS=%t CaCertName=%s ClientCertName=%s",
+		c.flagUseTls, c.flagCaCertName, c.flagClientCertName))
+
 	// Build the HTTP handler and server
 	injector := connectinject.Handler{
 		ImageConsul:       c.flagConsulImage,
 		ImageEnvoy:        c.flagEnvoyImage,
 		RequireAnnotation: !c.flagDefaultInject,
+		UseTls:            c.flagUseTls,
+		CaCertName:        c.flagCaCertName,
+		ClientCertName:    c.flagClientCertName,
 		Log:               hclog.Default().Named("handler"),
 	}
 	mux := http.NewServeMux()
@@ -135,7 +152,7 @@ func (c *Command) handleReady(rw http.ResponseWriter, req *http.Request) {
 func (c *Command) getCertificate(*tls.ClientHelloInfo) (*tls.Certificate, error) {
 	certRaw := c.cert.Load()
 	if certRaw == nil {
-		return nil, fmt.Errorf("No certificate available.")
+		return nil, fmt.Errorf("no certificate available")
 	}
 
 	return certRaw.(*tls.Certificate), nil

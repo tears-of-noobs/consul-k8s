@@ -12,6 +12,7 @@ type initContainerCommandData struct {
 	ServiceName string
 	ServicePort int32
 	Upstreams   []initContainerCommandUpstreamData
+	ConsulAddr  string
 }
 
 type initContainerCommandUpstreamData struct {
@@ -26,6 +27,7 @@ type initContainerCommandUpstreamData struct {
 func (h *Handler) containerInit(pod *corev1.Pod) (corev1.Container, error) {
 	data := initContainerCommandData{
 		ServiceName: pod.Annotations[annotationService],
+		ConsulAddr:  "${HOST_IP}:8500",
 	}
 	if data.ServiceName == "" {
 		// Assertion, since we call defaultAnnotations above and do
@@ -72,6 +74,10 @@ func (h *Handler) containerInit(pod *corev1.Pod) (corev1.Container, error) {
 		}
 	}
 
+	if h.UseTls {
+		data.ConsulAddr = "https://${HOST_IP}:8501"
+	}
+
 	// Render the command
 	var buf bytes.Buffer
 	tpl := template.Must(template.New("root").Parse(strings.TrimSpace(
@@ -104,12 +110,7 @@ func (h *Handler) containerInit(pod *corev1.Pod) (corev1.Container, error) {
 				},
 			},
 		},
-		VolumeMounts: []corev1.VolumeMount{
-			corev1.VolumeMount{
-				Name:      volumeName,
-				MountPath: "/consul/connect-inject",
-			},
-		},
+		VolumeMounts: h.volumeMounts(),
 		Command: []string{"/bin/sh", "-ec", buf.String()},
 	}, nil
 }
@@ -117,8 +118,12 @@ func (h *Handler) containerInit(pod *corev1.Pod) (corev1.Container, error) {
 // initContainerCommandTpl is the template for the command executed by
 // the init container.
 const initContainerCommandTpl = `
-export CONSUL_HTTP_ADDR="${HOST_IP}:8500"
+export CONSUL_HTTP_ADDR="{{ .ConsulAddr }}"
 export CONSUL_GRPC_ADDR="${HOST_IP}:8502"
+export CONSUL_CACERT="/consul/tls/ca/tls.crt" 
+export CONSUL_CLIENT_CERT="/consul/tls/client/tls.crt" 
+export CONSUL_CLIENT_KEY="/consul/tls/client/tls.key"
+export CONSUL_HTTP_SSL_VERIFY=false
 
 # Register the service. The HCL is stored in the volume so that
 # the preStop hook can access it to deregister the service.

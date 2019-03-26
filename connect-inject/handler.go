@@ -73,6 +73,10 @@ type Handler struct {
 	// If this is false, injection is default.
 	RequireAnnotation bool
 
+	UseTls        bool
+	CaCertName    string
+	ClientCertName string
+
 	// Log
 	Log hclog.Logger
 }
@@ -132,6 +136,11 @@ func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
 // Mutate takes an admission request and performs mutation if necessary,
 // returning the final API response.
 func (h *Handler) Mutate(req *v1beta1.AdmissionRequest) *v1beta1.AdmissionResponse {
+
+	h.Log.Info(fmt.Sprintf("Mutate(): UseTLS=%t CaCertName=%s ClientCertName=%s",
+		h.UseTls, h.CaCertName, h.ClientCertName))
+
+
 	// Decode the pod from the request
 	var pod corev1.Pod
 	if err := json.Unmarshal(req.Object.Raw, &pod); err != nil {
@@ -179,6 +188,13 @@ func (h *Handler) Mutate(req *v1beta1.AdmissionRequest) *v1beta1.AdmissionRespon
 	patches = append(patches, addVolume(
 		pod.Spec.Volumes,
 		[]corev1.Volume{h.containerVolume()},
+		"/spec/volumes")...)
+
+	// If Consul requires TLS, add volumes containing the CA and
+	// client certificates.
+	patches = append(patches, addVolume(
+		pod.Spec.Volumes,
+		h.secretVolumes(),
 		"/spec/volumes")...)
 
 	// Add the upstream services as environment variables for easy
