@@ -160,7 +160,7 @@ func (c *Command) certWatcher(ctx context.Context, ch <-chan cert.Bundle, client
 			return
 		}
 
-		cert, err := tls.X509KeyPair(bundle.Cert, bundle.Key)
+		keyPair, err := tls.X509KeyPair(bundle.Cert, bundle.Key)
 		if err != nil {
 			c.UI.Error(fmt.Sprintf("Error loading TLS keypair: %s", err))
 			continue
@@ -188,7 +188,7 @@ func (c *Command) certWatcher(ctx context.Context, ch <-chan cert.Bundle, client
 		}
 
 		// Update the certificate
-		c.cert.Store(&cert)
+		c.cert.Store(&keyPair)
 	}
 }
 
