@@ -20,10 +20,11 @@ type initContainerCommandData struct {
 }
 
 type initContainerCommandUpstreamData struct {
-	Name       string
-	LocalPort  int32
-	Datacenter string
-	Query      string
+	Name        string
+	LocalPort   int32
+	Datacenter  string
+	Query       string
+	ServiceTags string
 }
 
 // containerInit returns the init container spec for registering the Consul
@@ -66,10 +67,11 @@ func (h *Handler) containerInit(pod *corev1.Pod) (corev1.Container, error) {
 	// If upstreams are specified, configure those
 	if raw, ok := pod.Annotations[annotationUpstreams]; ok && raw != "" {
 		for _, raw := range strings.Split(raw, ",") {
-			parts := strings.SplitN(raw, ":", 3)
+			parts := strings.SplitN(raw, ":", 4)
 
 			var datacenter, service_name, prepared_query string
 			var port int32
+			var serviceTags []string
 			if parts[0] == "prepared_query" {
 				port, _ = portValue(pod, strings.TrimSpace(parts[2]))
 				prepared_query = strings.TrimSpace(parts[1])
@@ -81,14 +83,35 @@ func (h *Handler) containerInit(pod *corev1.Pod) (corev1.Container, error) {
 				if len(parts) > 2 {
 					datacenter = strings.TrimSpace(parts[2])
 				}
+
+				// parse service tags
+				if len(parts) > 3 {
+					rawTags := strings.Split(parts[3], "#")
+					for _, tag := range rawTags {
+						serviceTags = append(
+							serviceTags,
+							strings.TrimSpace(tag),
+						)
+					}
+				}
 			}
 
 			if port > 0 {
+				jsonServiceTags, err := json.Marshal(serviceTags)
+				if err != nil {
+					h.Log.Error(
+						"Error json marshaling service tags",
+						"Error", err,
+						"Tags", serviceTags,
+					)
+				}
+
 				data.Upstreams = append(data.Upstreams, initContainerCommandUpstreamData{
-					Name:       service_name,
-					LocalPort:  port,
-					Datacenter: datacenter,
-					Query:      prepared_query,
+					Name:        service_name,
+					LocalPort:   port,
+					Datacenter:  datacenter,
+					Query:       prepared_query,
+					ServiceTags: string(jsonServiceTags),
 				})
 			}
 		}
@@ -171,6 +194,9 @@ services {
   kind = "connect-proxy"
   address = "${POD_IP}"
   port = 20000
+  {{- if .Tags}}
+  tags = {{.Tags}}
+  {{- end}}
 
   proxy {
     destination_service_name = "{{ .ServiceName }}"
@@ -186,6 +212,9 @@ services {
       {{- if .Name }}
       destination_type = "service" 
       destination_name = "{{ .Name }}"
+      {{- if .ServiceTags }}
+      destination_tags = {{ .ServiceTags }}
+      {{- end }}
       {{- end}}
       {{- if .Query }}
       destination_type = "prepared_query" 
