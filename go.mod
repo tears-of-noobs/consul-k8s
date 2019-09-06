@@ -34,6 +34,7 @@ require (
 	github.com/keybase/go-crypto v0.0.0-20180807163025-c84d7cbef16b // indirect
 	github.com/lib/pq v1.0.0 // indirect
 	github.com/mattbaird/jsonpatch v0.0.0-20171005235357-81af80346b1a
+	github.com/mgechev/revive v0.0.0-20190831212952-fa5acbc1f032 // indirect
 	github.com/mitchellh/cli v1.0.0
 	github.com/mitchellh/copystructure v1.0.0 // indirect
 	github.com/mitchellh/go-homedir v1.0.0
@@ -45,9 +46,15 @@ require (
 	github.com/prometheus/common v0.0.0-20180801064454-c7de2306084e // indirect
 	github.com/prometheus/procfs v0.0.0-20180725123919-05ee40e3a273 // indirect
 	github.com/radovskyb/watcher v1.0.2
+	github.com/reconquest/karma-go v0.0.0-20190411204320-1094651bd246
 	github.com/shirou/gopsutil v2.17.12+incompatible // indirect
 	github.com/stretchr/testify v1.3.0
 	github.com/tv42/httpunix v0.0.0-20150427012821-b75d8614f926 // indirect
+	golang.org/x/crypto v0.0.0-20190829043050-9756ffdc2472 // indirect
+	golang.org/x/net v0.0.0-20190827160401-ba9fcec4b297 // indirect
+	golang.org/x/sys v0.0.0-20190904154756-749cb33beabd // indirect
+	golang.org/x/text v0.3.2 // indirect
+	golang.org/x/tools v0.0.0-20190905035308-adb45749da8e // indirect
 	google.golang.org/genproto v0.0.0-20190404172233-64821d5d2107 // indirect
 	gopkg.in/mgo.v2 v2.0.0-20180705113604-9856a29383ce // indirect
 	k8s.io/api v0.0.0-20190325185214-7544f9db76f6

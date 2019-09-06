@@ -24,6 +24,11 @@ const (
 )
 
 const (
+	checkHTTP = "http"
+	checkTCP  = "tcp"
+)
+
+const (
 	// annotationStatus is the key of the annotation that is added to
 	// a pod after an injection is done.
 	annotationStatus = "consul.hashicorp.com/connect-inject-status"
@@ -56,6 +61,25 @@ const (
 	// annotationTags is a list of tags to register with the service
 	// this is specified as a comma separated list e.g. abc,123
 	annotationTags = "consul.hashicorp.com/connect-service-tags"
+
+	// annotationChecks it is a checks definition annotation
+	// now supports only TCP and HTTP (without Headers) checks.
+	// All checks should be comma separated
+	// Examples tor check definition
+	// |TYPE|ID|Description|Check URL|TIMEOUT|INTERVAL|METHOD|SKIP_TLS|
+	//                                                |HTTP  |HTTP    |
+	//
+	// "http;health;simple http check;https://localhost/health;10s;30s;GET;false"
+	// "tcp;health;simple tcp check;80;10s;30s"
+	annotationChecks = "consul.hashicorp.com/connect-service-checks"
+
+	// annotationEnvoyPrometheusBindAddr is the address where
+	// prometheus metrics will be exposed
+	annotationEnvoyPrometheusBindAddr = "consul.hashicorp.com/connect-envoy-prometheus-bind-addr"
+
+	// annotationConnectSkipFabioTags skips the urlprefix- tag from
+	// sidecar service. Defaults to true
+	annotationConnectSkipFabioTags = "consul.hashicorp.com/connect-skip-fabio-tags"
 )
 
 var (

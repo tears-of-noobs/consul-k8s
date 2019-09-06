@@ -3,6 +3,10 @@ package connectinject
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"text/template"
 
@@ -10,13 +14,16 @@ import (
 )
 
 type initContainerCommandData struct {
-	ServiceName     string
-	ServicePort     int32
-	ServiceProtocol string
-	AuthMethod      string
-	CentralConfig   bool
-	Upstreams       []initContainerCommandUpstreamData
-	Tags            string
+	ServiceName             string
+	ServicePort             int32
+	ServiceProtocol         string
+	AuthMethod              string
+	CentralConfig           bool
+	EnvoyPrometheusBindAddr string
+	Upstreams               []initContainerCommandUpstreamData
+	Tags                    string
+	ServiceTags             string
+	Checks                  []initContainerServiceCheck
 }
 
 type initContainerCommandUpstreamData struct {
@@ -26,6 +33,19 @@ type initContainerCommandUpstreamData struct {
 	Query       string
 	ServiceTags string
 }
+
+type initContainerServiceCheck struct {
+	ID            string
+	Name          string
+	TCP           string
+	HTTP          string
+	TLSSkipVerify bool
+	Method        string
+	Interval      string
+	Timeout       string
+}
+
+const fabioURLprefixTag = "urlprefix-"
 
 // containerInit returns the init container spec for registering the Consul
 // service, setting up the Envoy bootstrap, etc.
@@ -50,18 +70,144 @@ func (h *Handler) containerInit(pod *corev1.Pod) (corev1.Container, error) {
 		}
 	}
 
+	envoyPrometheusBindAddr, err := fetchEnvoyPrometheusBindAddr(pod)
+	if err != nil {
+		h.Log.Error(
+			"can't fetch prometheus bind address for envoy proxy",
+			"error message", err,
+		)
+		os.Exit(1)
+	}
+
+	data.EnvoyPrometheusBindAddr = envoyPrometheusBindAddr
+
 	// If tags are specified split the string into an array and create
 	// the tags string
 	if raw, ok := pod.Annotations[annotationTags]; ok && raw != "" {
-		tags := strings.Split(raw, ",")
+		skipFabioTags := true
 
-		// Create json array from the annotations
-		jsonTags, err := json.Marshal(tags)
-		if err != nil {
-			h.Log.Error("Error json marshaling tags", "Error", err, "Tags", tags)
+		raw, ok := pod.Annotations[annotationConnectSkipFabioTags]
+		if ok {
+			fabioTags, err := strconv.ParseBool(raw)
+			if err != nil {
+				h.Log.Error(
+					"can't parse boolean value, set it to true forcely",
+					"Value", raw,
+				)
+			} else {
+				skipFabioTags = fabioTags
+			}
 		}
 
-		data.Tags = string(jsonTags)
+		tags := strings.Split(raw, ",")
+
+		var connectServiceTags, serviceTags []string
+		for _, tag := range tags {
+			if strings.HasPrefix(tag, fabioURLprefixTag) && skipFabioTags {
+				serviceTags = append(serviceTags, tag)
+				continue
+			}
+			connectServiceTags = append(connectServiceTags, tag)
+			serviceTags = append(serviceTags, tag)
+		}
+
+		// Create json array from the annotations
+		if len(connectServiceTags) != 0 {
+			jsonTags, err := json.Marshal(connectServiceTags)
+			if err != nil {
+				h.Log.Error(
+					"Error json marshaling connect service tags",
+					"Error", err,
+					"Tags", connectServiceTags,
+				)
+			}
+
+			data.Tags = string(jsonTags)
+		}
+
+		if len(serviceTags) != 0 {
+			jsonServiceTags, err := json.Marshal(serviceTags)
+			if err != nil {
+				h.Log.Error(
+					"Error json marshaling service tags",
+					"Error", err,
+					"Tags", serviceTags,
+				)
+			}
+
+			data.ServiceTags = string(jsonServiceTags)
+		}
+
+	}
+
+	if raw, ok := pod.Annotations[annotationChecks]; ok && raw != "" {
+		serviceChecks := []initContainerServiceCheck{}
+
+		checks := strings.Split(raw, ",")
+
+		for _, check := range checks {
+			parts := strings.SplitN(check, ";", 8)
+
+			serviceCheck := initContainerServiceCheck{
+				Method:        http.MethodGet,
+				TLSSkipVerify: false,
+			}
+
+			if len(parts) < 6 {
+				panic(
+					"incorrect check definition, it should be at least 6 fields",
+				)
+			}
+
+			checkType := strings.TrimSpace(parts[0])
+
+			switch checkType {
+			case checkHTTP:
+				serviceCheck.HTTP = strings.TrimSpace(parts[3])
+			case checkTCP:
+				serviceCheck.TCP = strings.TrimSpace(parts[3])
+			default:
+				panic(
+					fmt.Sprintf(
+						"unsupported check type %s",
+						checkType,
+					),
+				)
+			}
+
+			serviceCheck.ID = fmt.Sprintf(
+				"%s-%s",
+				strings.ReplaceAll(data.ServiceName, " ", "-"),
+				strings.TrimSpace(parts[1]),
+			)
+
+			serviceCheck.Name = strings.TrimSpace(parts[2])
+			serviceCheck.Interval = strings.TrimSpace(parts[4])
+			serviceCheck.Timeout = strings.TrimSpace(parts[5])
+
+			if len(parts) == 8 {
+				skipVerify, err := strconv.ParseBool(parts[7])
+				if err != nil {
+					h.Log.Error(
+						"Error parse boolean value",
+						"Error", err, "Value", parts[7],
+					)
+				}
+
+				serviceCheck.TLSSkipVerify = skipVerify
+				if strings.TrimSpace(parts[6]) != "" {
+					serviceCheck.Method = strings.TrimSpace(parts[6])
+				}
+			}
+
+			if len(parts) == 7 {
+				serviceCheck.Method = strings.TrimSpace(parts[6])
+			}
+
+			serviceChecks = append(serviceChecks, serviceCheck)
+		}
+
+		data.Checks = serviceChecks
 	}
 
 	// If upstreams are specified, configure those
@@ -140,7 +286,7 @@ func (h *Handler) containerInit(pod *corev1.Pod) (corev1.Container, error) {
 	var buf bytes.Buffer
 	tpl := template.Must(template.New("root").Parse(strings.TrimSpace(
 		initContainerCommandTpl)))
-	err := tpl.Execute(&buf, &data)
+	err = tpl.Execute(&buf, &data)
 	if err != nil {
 		return corev1.Container{}, err
 	}
@@ -205,6 +351,11 @@ services {
     local_service_address = "127.0.0.1"
     local_service_port = {{ .ServicePort }}
     {{ end -}}
+	{{ if .EnvoyPrometheusBindAddr }}
+	config {
+      envoy_prometheus_bind_addr = "{{ .EnvoyPrometheusBindAddr }}"
+    }
+	{{ end }}
 
 
     {{ range .Upstreams -}}
@@ -215,7 +366,7 @@ services {
       {{- if .ServiceTags }}
       destination_tags = {{ .ServiceTags }}
       {{- end }}
-      {{- end}}
+      {{- end }}
       {{- if .Query }}
       destination_type = "prepared_query" 
       destination_name = "{{ .Query}}"
@@ -246,9 +397,32 @@ services {
   name = "{{ .ServiceName }}"
   address = "${POD_IP}"
   port = {{ .ServicePort }}
-  {{- if .Tags}}
-  tags = {{.Tags}}
+  {{- if .ServiceTags }}
+  tags = {{.ServiceTags}}
   {{- end}}
+
+  {{ range $check := .Checks }}
+  checks {
+	id   = "${POD_NAME}-{{ $check.ID }}"
+	name = "{{ $check.Name }}"
+	{{- if $check.HTTP }}
+	http = "{{ $check.HTTP }}"
+	{{- end }}
+	{{- if $check.TCP }}
+	tcp  = "${POD_IP}:{{ $check.TCP }}"
+	{{- end }}
+	interval = "{{ $check.Interval }}"
+	timeout = "{{ $check.Timeout }}"
+	{{- if $check.HTTP }}
+	{{- if $check.Method }}
+	method = "{{ $check.Method }}"
+	{{- end }}
+	{{- if $check.TLSSkipVerify }}
+	tls_skip_verify = {{ $check.TLSSkipVerify }}
+	{{- end }}
+	{{- end }}
+  }
+  {{ end }}
 }
 EOF
 
