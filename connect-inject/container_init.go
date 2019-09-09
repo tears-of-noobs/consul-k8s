@@ -55,6 +55,7 @@ func (h *Handler) containerInit(pod *corev1.Pod) (corev1.Container, error) {
 		ServiceProtocol: pod.Annotations[annotationProtocol],
 		AuthMethod:      h.AuthMethod,
 		CentralConfig:   h.CentralConfig,
+		Checks:          []initContainerServiceCheck{},
 	}
 	if data.ServiceName == "" {
 		// Assertion, since we call defaultAnnotations above and do
@@ -81,23 +82,24 @@ func (h *Handler) containerInit(pod *corev1.Pod) (corev1.Container, error) {
 
 	data.EnvoyPrometheusBindAddr = envoyPrometheusBindAddr
 
+	skipFabioTags := true
+
+	raw, ok := pod.Annotations[annotationConnectSkipFabioTags]
+	if ok {
+		fabioTags, err := strconv.ParseBool(raw)
+		if err != nil {
+			h.Log.Error(
+				"can't parse boolean value, set it to true forcely",
+				"Value", raw,
+			)
+		} else {
+			skipFabioTags = fabioTags
+		}
+	}
+
 	// If tags are specified split the string into an array and create
 	// the tags string
 	if raw, ok := pod.Annotations[annotationTags]; ok && raw != "" {
-		skipFabioTags := true
-
-		raw, ok := pod.Annotations[annotationConnectSkipFabioTags]
-		if ok {
-			fabioTags, err := strconv.ParseBool(raw)
-			if err != nil {
-				h.Log.Error(
-					"can't parse boolean value, set it to true forcely",
-					"Value", raw,
-				)
-			} else {
-				skipFabioTags = fabioTags
-			}
-		}
 
 		tags := strings.Split(raw, ",")
 
@@ -111,8 +113,8 @@ func (h *Handler) containerInit(pod *corev1.Pod) (corev1.Container, error) {
 			serviceTags = append(serviceTags, tag)
 		}
 
-		// Create json array from the annotations
 		if len(connectServiceTags) != 0 {
+			fmt.Println("kek")
 			jsonTags, err := json.Marshal(connectServiceTags)
 			if err != nil {
 				h.Log.Error(
