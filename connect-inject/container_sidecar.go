@@ -2,6 +2,8 @@ package connectinject
 
 import (
 	"bytes"
+	"os"
+	"strconv"
 	"strings"
 	"text/template"
 
@@ -19,9 +21,29 @@ func (h *Handler) containerSidecar(pod *corev1.Pod) (corev1.Container, error) {
 		return corev1.Container{}, err
 	}
 
+	envoyPrometheusBindAddr, err := fetchEnvoyPrometheusBindAddr(pod)
+	if err != nil {
+		h.Log.Error(
+			"can't fetch prometheus bind address for envoy proxy",
+			"error message", err,
+		)
+		os.Exit(1)
+	}
+
+	// Validation already performed by fetchEnvoyPrometheusBindAddr
+	// so on output we always have "host:port" value
+	parts := strings.SplitN(envoyPrometheusBindAddr, ":", 2)
+	port, _ := strconv.ParseInt(parts[1], 10, 64)
+
+	envoyPrometheusPort := corev1.ContainerPort{
+		Name:          "envoy-exporter",
+		ContainerPort: int32(port),
+	}
+
 	return corev1.Container{
 		Name:  "consul-connect-envoy-sidecar",
 		Image: h.ImageEnvoy,
+		Ports: []corev1.ContainerPort{envoyPrometheusPort},
 		Env: []corev1.EnvVar{
 			{
 				Name: "HOST_IP",

@@ -82,6 +82,12 @@ func (h *Handler) containerInit(pod *corev1.Pod) (corev1.Container, error) {
 
 	data.EnvoyPrometheusBindAddr = envoyPrometheusBindAddr
 
+	tagsSeparator := ","
+
+	if raw, ok := pod.Annotations[annotationTagsSeparator]; ok && raw != "" {
+		tagsSeparator = raw
+	}
+
 	skipFabioTags := true
 
 	raw, ok := pod.Annotations[annotationConnectSkipFabioTags]
@@ -101,10 +107,11 @@ func (h *Handler) containerInit(pod *corev1.Pod) (corev1.Container, error) {
 	// the tags string
 	if raw, ok := pod.Annotations[annotationTags]; ok && raw != "" {
 
-		tags := strings.Split(raw, ",")
+		tags := strings.Split(raw, tagsSeparator)
 
 		var connectServiceTags, serviceTags []string
 		for _, tag := range tags {
+			tag = strings.TrimSpace(tag)
 			if strings.HasPrefix(tag, fabioURLprefixTag) && skipFabioTags {
 				serviceTags = append(serviceTags, tag)
 				continue
@@ -114,7 +121,6 @@ func (h *Handler) containerInit(pod *corev1.Pod) (corev1.Container, error) {
 		}
 
 		if len(connectServiceTags) != 0 {
-			fmt.Println("kek")
 			jsonTags, err := json.Marshal(connectServiceTags)
 			if err != nil {
 				h.Log.Error(

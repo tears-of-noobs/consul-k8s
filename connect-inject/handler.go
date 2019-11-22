@@ -62,6 +62,10 @@ const (
 	// this is specified as a comma separated list e.g. abc,123
 	annotationTags = "consul.hashicorp.com/connect-service-tags"
 
+	// annotationTags is a list of tags to register with the service
+	// this is specified as a comma separated list e.g. abc,123
+	annotationTagsSeparator = "consul.hashicorp.com/connect-service-tags-separator"
+
 	// annotationChecks it is a checks definition annotation
 	// now supports only TCP and HTTP (without Headers) checks.
 	// All checks should be comma separated
