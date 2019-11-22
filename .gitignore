@@ -1,5 +1,4 @@
 .DS_Store
 /bin
 /pkg
-*.dockerfile
 consul-k8s
